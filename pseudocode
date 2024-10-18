@@ -1,0 +1,37 @@
+script params
+    Calculates the optimal miniaturization parameters for a graph
+
+    Parameters
+    ----------
+    path_metrics
+        path to the .json file containing the metrics of the graph
+    dir_output
+        output directory where to store the calculated weights
+    n_changes
+        number of changes proposed at each step
+    n_samples
+        number of times the experiment is repeated
+    n_steps
+        number of iterations for each experiment
+
+    
+script miniaturize
+    Creates the miniature of a graph using Parallel Tempering
+
+script simulate_sir
+    Simulates the Susceptible-infected-recovered compartmental model on a graph
+
+script simulate_degroot
+    Simulates the degroot learning model on a graph
+
+script qois_sir
+    Calculates the quantities of interest of an sir simulation
+
+script qois_degroot
+    Calculates the quantities of interest of a degroot simulation 
+
+script visualization_sir
+    Plots the compartment trajectories of the sir model
+    
+script visualization_degroot
+    Plots the trajectories of the beliefs of each individual
