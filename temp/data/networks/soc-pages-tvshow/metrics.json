@@ -1,9 +1,0 @@
-{
-    "Graph Name": "soc-pages-tvshow",
-    "num_vertices": 3900,
-    "num_edges": 17200,
-    "density": 2.27e-3,
-    "clustering": 0.37,
-    "assortativity": 0.56,
-    "assortativity_norm": 0.78
-}

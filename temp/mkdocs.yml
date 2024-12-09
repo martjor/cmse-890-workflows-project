@@ -1,7 +1,0 @@
-site_name: Metropolis-Hastings Graph Miniaturization
-
-theme: material
-
-plugins:
-    - search 
-    - mkdocstrings

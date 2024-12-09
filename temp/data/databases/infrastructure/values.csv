@@ -1,9 +1,0 @@
-Graph Name	|V|   	|E|   	dmax   	davg   	r   	|T|   	Tavg   	Tmax   	κavg   	κ   	K   	ωheu   	Size	Download
-332	2K	139	12	-0.21	37K	110	1K	0.63	0.40	27	22	11 KB	  Download
-1K	1K	10	2	0.13	96	-	2	0.02	0.03	3	3	6 KB	  Download
-7M	7M	9	2	0.25	22K	-	5	0.00	0.00	4	3	32 MB	  Download
-3K	31K	473	20	0.05	853K	290	15K	0.40	0.25	56	20	80 KB	  Download
-5K	7K	19	2	0.00	2K	-	21	0.08	0.10	6	6	23 KB	  Download
-24M	29M	9	2	0.07	1M	-	8	0.02	0.03	4	3	113 MB	  Download
-2M	3M	12	2	0.12	361K	-	7	0.05	0.06	4	4	10 MB	  Download
-1M	2M	9	2	0.12	201K	-	8	0.05	0.06	4	3	5 MB	  Download

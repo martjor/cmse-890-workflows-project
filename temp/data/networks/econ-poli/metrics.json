@@ -1,9 +1,0 @@
-{
-    "Graph Name": "econ-poli",
-    "num_vertices": 4000,
-    "num_edges": 4200,
-    "density": 5.20e-04,
-    "clustering": 5.20e-02,
-    "assortativity": -0.29,
-    "assortativity_norm": 0.355
-}

@@ -1,8 +1,0 @@
-{
-    "Graph Name": "inf-roadNET-PA",
-    "num_vertices": 1.1e6,
-    "num_edges": 1.5e6,
-    "density": 2.60e-06,
-    "clustering": 0.05,
-    "assortativity": 0.12
-}

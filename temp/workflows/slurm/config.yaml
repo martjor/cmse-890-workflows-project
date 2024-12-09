@@ -1,8 +1,0 @@
-executor: slurm
-latency-wait: 30
-jobs: 200
-default-resources:
-  runtime: 15
-  mem_mb: 1500
-  cpus_per_task: 1
-  
