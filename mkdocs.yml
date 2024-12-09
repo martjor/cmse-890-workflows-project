@@ -1,0 +1,39 @@
+site_name: Metropolis-Hastings Graph Miniaturization
+
+theme: material
+
+plugins:
+    - search 
+    - mkdocstrings:
+        handlers:
+            python:
+                paths: [src]
+                options:
+                    ignore_init_summary: false
+                    show_root_heading: True
+                    show_root_full_path: False
+                    show_symbol_type_heading: True
+                    show_symbol_type_toc: True
+                    show_category_heading: False
+                    show_source: False
+
+                    docstring_style: numpy
+                    docstring_section_style: table
+                    
+                    filters:
+                        - "__init__"
+                        - "!^__(?!init__$)"
+                        
+                    #show_root_toc_entry: false
+
+
+
+nav:
+    - Home: index.md
+    - Reference:
+        - Miniaturize: reference/miniaturize.md
+        - Simulation:   reference/simulation.md
+    # - Tutorial
+    # - How-to
+    # - Explanation
+

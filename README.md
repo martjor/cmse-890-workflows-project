@@ -1,2 +1,2 @@
-# cmse-890-workflows-project
-A repository for the final project of the class
+# miniature_graphs
+Code, data and docs for creating miniaturized graphs for social network analysis.

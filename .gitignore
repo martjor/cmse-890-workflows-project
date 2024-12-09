@@ -1,0 +1,24 @@
+__pycache__/
+*.DS_Store
+minigraphs.egg-info/
+site/
+*.out
+*.err
+
+# Source directory
+src/miniaturize_batch.sh
+src/params_batch.sh
+
+# Networks directory
+data/networks/**/*
+!data/networks/**/
+
+# WORKFLOWS
+workflows/**/data/
+workflows/**/dag*.png
+workflows/**/logs/
+workflows/**/.snakemake/
+workflows/**/results/
+
+workflows/config/
+!workflows/config/template_*
