@@ -128,17 +128,21 @@ class MH:
             tol: float | None = None,
             max_iterations: int | None = None,
             copy: bool = False,
-            warm_start: bool = False
+            warm_start: bool = False,
+            monitor: str = 'loss'
         ):
+        # Initialize attributes
         self.metrics_functions = metrics_functions 
         self.metrics_weights = metrics_weights
         self.n_changes = n_changes
         self.tol = tol
         self.max_iterations = max_iterations
         self.schedule = schedule
-        self.warm_start = warm_start
         self.copy = copy
+        self.warm_start = warm_start
+        self.monitor = monitor
 
+        # Initialize 2nd order attributes
         self.is_fitted = False
 
     def compute_graph_metrics(self, graph):
@@ -146,16 +150,27 @@ class MH:
         '''
         return {metric: func(graph) for metric, func in self.metrics_functions.items()}
     
-    def compute_loss(self, metrics):
-        '''Compute the induced loss of the graph
+    def compute_diff(self, metrics):
+        '''Compute the difference in the metrics
         '''
-        loss = 0
+        diff = {}
 
         for metric, value in metrics.items():
             try:
-                loss += self._weights[metric] * abs(self.target_metrics_[metric] - value)
+                diff[metric] = self.target_metrics_[metric] - value
             except TypeError as e:
                 raise TypeError(f"Error: invalid scalar operation for metric {metric}") from e
+            
+        return diff
+
+    def compute_loss(self, metrics, p=1):
+        '''Compute the induced loss of the graph
+        '''
+        diff = self.compute_diff(metrics)
+        loss = 0
+
+        for metric, value in diff.items():
+            loss += self._weights[metric] * abs(value) ** p
 
         return loss
         
