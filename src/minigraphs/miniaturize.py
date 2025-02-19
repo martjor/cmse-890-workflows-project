@@ -13,11 +13,13 @@ import scipy.sparse
 from scipy.special import comb
 import scipy
 from sklearn.preprocessing import normalize
+from sklearn.exceptions import NotFittedError
 from typing import Callable 
 import matplotlib.pyplot as plt
 from abc import ABC,abstractmethod
 from collections import deque
 from pydantic import BaseModel, validate_call
+from typing import Dict, Tuple
 
 NX_DENSITY = lambda G: nx.density(G)
 NX_CLUSTERING = lambda G: nx.average_clustering(G)
@@ -79,6 +81,28 @@ class Switch(Change):
         G.remove_edge(new[0],new[1])
         G.add_edge(old[0],old[1])
 
+class EvaluatorDict:
+    '''Evaluator Class
+    '''
+    def __init__(self, dictionary: Dict[str, Callable], object):
+        self.dictionary = dictionary
+        self.object = object 
+        
+    def __getitem__(self, key):
+        return self.dictionary[key](self.object)
+    
+    def __setitem__(self, key, func: Callable):
+        self.dictionary[key] = func
+    
+    def keys(self):
+        return self.dictionary.keys()
+    
+    def values(self):
+        return [func(self.object) for func in self.dictionary.values()]
+    
+    def items(self):
+        return {key: func(self.object) for key, func in self.dictionary.items()}.items()
+
 class MH:
     """
     An MH-based annealer to miniaturize a graph.
@@ -95,149 +119,47 @@ class MH:
         The generated graph miniature.
     """
     @validate_call
-    def __init__(self,
-                 metrics: dict [str, Callable],
-                 schedule: Callable | None = None, 
-                 weights: dict [str, float ] = None,
-                 n_changes: int = 1,
-                 func_loss: Callable = None,
-                 ):
-        """
-        Parameters
-        ----------
-        metrics : dict of str to callable
-            Dictionary containing the functions used to evaluate the graph 
-            metrics.
+    def __init__(
+            self,
+            metrics_functions: dict [str, Callable],
+            schedule: float | Callable = 0,
+            metrics_weights: dict [str, float] = {},
+            n_changes: int = 1,
+            tol: float | None = None,
+            max_iterations: int | None = None,
+            copy: bool = False,
+            warm_start: bool = False
+        ):
+        self.metrics_functions = metrics_functions 
+        self.metrics_weights = metrics_weights
+        self.n_changes = n_changes
+        self.tol = tol
+        self.max_iterations = max_iterations
+        self.schedule = schedule
+        self.warm_start = warm_start
+        self.copy = copy
 
-        schedule : callable
-            A function that returns the value of the inverse temperature at
-            every iteration.
+        self.is_fitted = False
 
-        weights :  dict of str to float
-            Dictionary containing the relative weights of every graph metric.
-
-        n_changes : int
-            Number of changes implemented at each iteration.
-
-        func_loss : callable
-            A callable that will take a list of weights and a list of differences
-            in graph metrics and evaluate the loss.
-        """
-
-        # Store Annealing schedule
-        if schedule is None:
-            self.schedule = self.__schedule_adaptive
-            self.__schedule_is_default = True
-        else:
-            self.schedule = schedule
-            self.__schedule_is_default = False
-        
-        # Store metrics functions
-        self._metrics = metrics 
-    
-        # Store weights
-        if weights is None:
-            # Weight metrics equally if no weights are specified
-            self._weights = {key: 1.0 for key in self._metrics}
-        else:
-            self._weights = weights
-        
-        # Check for matching keys
-        if self._metrics.keys() != self._weights.keys():
-            raise ValueError("Specified weights don't match corresponding metrics")
-        
-        # Store number of changes per step
-        self.n_changes = int(n_changes)
-        self.__window_size = 10
-        
-        # Store loss function
-        if func_loss is None:
-            self.func_loss = lambda weights, metrics_diff: np.sum(weights * np.abs(metrics_diff))
-        else:
-            self.func_loss = func_loss
-        
-    @property
-    def metrics(self) -> list[str]:
-        """
-        Names of metrics to target
-        """
-        return list(self._metrics.keys())
-    
-    @property
-    def weights(self) -> list[str]:
-        """
-        Names of metrics associated with weights
-        """
-        return list(self._weights.keys())
-    
-    @property
-    def trajectories_(self) -> pd.DataFrame:
-        """
-        DataFrame containing the trajectories of associated
-        with the miniaturization procedure
-        """
-        names = ['Step','Beta','Energy'] + list(self._targets_names)
-        df = pd.DataFrame(self._trajectories_,columns=names)
-        df.set_index('Step',inplace=True)
-        
-        return df
-    
-    def __schedule_adaptive(self,step):
-        '''Provides an adaptive scheduling
+    def compute_graph_metrics(self, graph):
+        '''Compute the metrics of a graph
         '''
-        f = 1.0
-        if step >= self.__window_size:
-            # Calculate current acceptance rate
-            rate = self.__window.sum() / self.__window_size
-            
-            # Adjust rate
-            if rate > 0.40:
-                f = 1.01
-            elif rate < 0.20:
-                f = 0.99
-                
-        return self.beta * f
+        return {metric: func(graph) for metric, func in self.metrics_functions.items()}
     
-    def __stop_convergence(self,step):
-        '''Provide a convergence criterion based on the proximity to the metrics
+    def compute_loss(self, metrics):
+        '''Compute the induced loss of the graph
         '''
-        window_size = 100
+        loss = 0
+
+        for metric, value in metrics.items():
+            try:
+                loss += self._weights[metric] * abs(self.target_metrics_[metric] - value)
+            except TypeError as e:
+                raise TypeError(f"Error: invalid scalar operation for metric {metric}") from e
+
+        return loss
         
-        if step <= window_size:
-            flag = False
-        else:
-            flag = self.__E0 < self.__epsilon
-            
-        return flag
-        
-                
-        
-    def __get_metrics(self):
-        '''Calculates the metrics of a graph
-        '''
-        metrics = []
-        
-        for name in self._targets_names:
-            # Calculate metric
-            metric = self._metrics[name](self.graph_)
-            
-            if not isinstance(metric, (int,float)):
-                raise TypeError(f"Metric function {name} returned a non-scalar value")
-            else:
-                metrics.append(metric)
-                
-        return metrics
-            
-    def __energy(self, metrics):
-        '''Energy of the graph with respect to target metrics
-        '''
-        diff = self._targets - metrics
-        
-        energy = self.func_loss(self._weights_arr,diff)
-        
-        return energy
-        
-    def __make_change(self) -> None:
+    def _do(self):
         '''Implements changes in a graph
         '''
         self._actions = deque()
@@ -249,8 +171,8 @@ class MH:
             while choose_action:
                 # Choose an action at random
                 p = np.random.uniform()
-                edges = list(nx.edges(self.graph_))
-                non_edges = list(nx.non_edges(self.graph_))
+                edges = list(nx.edges(self._miniature))
+                non_edges = list(nx.non_edges(self._miniature))
 
                 if (p < 0.25) and (len(non_edges) > 0):
                     # Add edge
@@ -275,170 +197,144 @@ class MH:
                     choose_action = False      
             
             # Implement change
-            action.do(self.graph_)
-            self._actions.append(action)          
-    
-    def __accept_change(self,E0: float, E1:float) -> bool:
+            action.do(self._miniature)
+            self._actions.append(self._miniature)   
+
+    def _undo(self):
+        '''Reverses changes made to the graph
+        '''
+        for _ in range(len(self._actions)):
+            self._actions.pop().undo(self._miniature)
+
+    def _accept(self, beta: float, loss: Tuple) -> bool:
         '''Accepts proposed change according to the Metropolis ratio
         '''
-        return np.exp((E0-E1)*self.beta) >= np.random.uniform()
-
-    @validate_call(config={'arbitrary_types_allowed':True})
-    def transform(self, 
-                  graph_seed: nx.Graph, 
-                  targets: dict[str,float],
-                  n_iterations: int = None,
-                  epsilon: float = None,
-                  beta: float = None,
-                  verbose: bool = False) -> None:
+        return np.exp(beta * (loss[0] - loss[1])) >= np.random.uniform()
+    
+    def spec(self, target):
+        '''Specifies the target
         '''
-        Miniaturizes seed graph
+        if isinstance(target, Dict):
+            # Validate metrics
+            if self.metrics_functions.keys() != target.keys():
+                raise KeyError("Annealer and target metrics do not coincide.")
 
-        Parameters
-        ----------
-        graph_seed: nx.Graph
-            The initial graph to optimize.
-
-        targets: dict of str to float
-            Dictionary containing the graph metrics to target.
-
-        n_iterations: int
-            Number of iterations the annealer will be run for.
-        
-        epsilon: float
-            Tolerance value to determine metrics convergence. 
-
-        beta: float
-            Initial inverse-temperature to be used in the automatic
-            scheduling.
-
-        verbose: bool
-            Flat indicating whether or not to print progress.
-        '''
-        if (n_iterations is None) and (epsilon is None):
-            raise ValueError("Exactly one stopping criterion must be provided")
-        elif epsilon is None:
-            stop = lambda step: step >= n_iterations
-        elif n_iterations is None:
-            self.__epsilon = epsilon
-            stop = self.__stop_convergence
-        
-        # Verify matching keys
-        self._targets_names = set(self.metrics).intersection(set(targets.keys()))
-        self._n_states = len(self._targets_names)
-        if self._n_states != 0:
-            # Initialize internal variables
-            self._weights_arr = np.array([self._weights[key] for key in self._targets_names])
-            self._targets = np.array([targets[key] for key in self._targets_names])
+            metrics = target
         else:
-            raise LookupError(f"No valid targets specified for annealer with metrics {self.metrics}\n")
-        
-        if (not self.__schedule_is_default) and (beta is not None):
-            print("Schedule provided - ignoring initial value for beta")
-        elif beta is not None:
-            self.beta = beta 
-        elif self.__schedule_is_default:
-            raise ValueError("Initial beta not provided for adaptive scheduling")
-        
-        # Create window to keep track of acceptance
-        self.__window = np.zeros(self.__window_size,dtype=bool)
-        self.__idx_window = 0
+            metrics = self.compute_graph_metrics(target)
 
-        # Initialize graph
-        self.graph_ = deepcopy(graph_seed)
+        self.target_metrics_ = metrics
+        self.is_fitted = True
+        self.n_iterations_ = 0
+
+        return self
+
+    def optimize(self, graph):
+        '''Optimizes the given graph
+        '''
+        # Validate weights 
+        if self.metrics_weights.keys() != self.metrics_functions.keys():
+            self._weights = dict.fromkeys(self.metrics_functions.keys(), 1.0)
+        else:
+            self._weights = self.metrics_weights
+
+        # Validate fitting
+        if not self.is_fitted:
+            raise NotFittedError("ERROR: Target metrics not yet specified.")
         
-        # Calculate graph metrics and energy
-        self.__m0 = self.__get_metrics()
-        self.__E0 = self.__energy(self.__m0)
+        # Validate schedule
+        if isinstance(self.schedule ,int | float):
+            self._schedule = lambda t: self.schedule
+
+        # Validate stopping criteria
+        if (self.max_iterations is None) and (self.tol is None):
+            raise ValueError("Error: only one of 'max_iterations' and 'tol' can be unspecified'")
+        elif self.max_iterations is None:
+            self.max_iterations = np.inf 
+        elif self.tol is None:
+            self.tol = 0
+
+        # Validate copy
+        if self.copy:
+            self._miniature = deepcopy(graph)
+        else:
+            self._miniature = graph
+
+        # Compute metrics & loss
+        self._metrics = [self.compute_graph_metrics(self._miniature), None]
+        self._loss = [self.compute_loss(self._metrics[0]), None]
+
+        # Initialize
+        self._step = 0
         
-        # Initialize trajectories
-        size_history = n_iterations or 10000
-        self._trajectories_ = np.zeros((size_history,self._n_states+3))
-        
-        #  Begin optimization
-        self.__idx_history = 0
-        step = 0
-        while not stop(step):
-            if (verbose is True) and (n_iterations is not None):
-                print(f"Iteration {step+1}/{n_iterations}\n")
-                
-            # Obtain temperature according to schedule
-            self.beta = self.schedule(step)
-                
-            # Change the graph and calculate energy
-            self.__make_change()
-            m1 = self.__get_metrics()
-            E1 = self.__energy(m1)
+        if not self.warm_start:
+            self.n_iterations_ = 0
+
+        while (self._step < self.max_iterations) and (self._loss[0] >= self.tol):
+            # Modify graph
+            self._do()
+
+            # Calculate acceptance parameters
+            self._beta = self._schedule(self.n_iterations_)
+
+            self._metrics[1] = self.compute_graph_metrics(self._miniature)
+            self._loss[1] = self.compute_loss(self._metrics[1])
             
             # Check for change
-            if self.__accept_change(self.__E0, E1):
-                # Update metrics and energy
-                self.__m0 = m1
-                self.__E0 = E1
-                
-                self.__window[self.__idx_window] = True
+            if self._accept(self._beta, self._loss):
+                self._metrics[0] = self._metrics[1]
+                self._loss[0] = self._loss[1]
             else:
-                # Reverse changes
-                for i in range(len(self._actions)):
-                    self._actions.pop().undo(self.graph_)
-                    
-                self.__window[self.__idx_window] = False
-            
-            # Update window index
-            self.__idx_window = (self.__idx_window + 1) % self.__window_size
-            
-            # Record state
-            self._trajectories_[self.__idx_history][0] = step
-            self._trajectories_[self.__idx_history][1] = self.beta
-            self._trajectories_[self.__idx_history][2] = self.__E0
-            self._trajectories_[self.__idx_history][3:] = self.__m0
-            
-            # Update indices
-            self.__idx_history = (self.__idx_history + 1) % size_history
-            step += 1
-            
-        # Store only required iterations
-        if step <= size_history:
-            self._trajectories_ = self._trajectories_[0:step]
-        else:
-            # Slice array
-            stack  = (
-                self._trajectories_[self.__idx_history:],
-                self._trajectories_[0:self.__idx_history]
-            )
-            
-            self._trajectories_ = np.vstack(stack)
-            
-        
+                # Undo Changes
+                self._undo()    
+
+            # Increase step & total number of iterations
+            self._step += 1
+            self.n_iterations_ += 1
+
+        return self
     
-    @staticmethod
-    def plot_trajectories(data,targets=None):
-        # Number of trajectories
-        trajectories = data.columns
-        n_trajectories = len(trajectories)
-        
-        # Instantiate figure and axes
-        fig, axes = plt.subplots(n_trajectories,1,dpi=300,figsize=(5,n_trajectories))
-        
-        for i,trajectory in enumerate(trajectories):
-            # Plot trajectory
-            axes[i].plot(data[trajectory],linewidth=1.0)
-            
-            # Plot targets if specified
-            if (trajectory != 'Beta') and (trajectory != 'Energy') and (not targets is None):
-                axes[i].axhline(targets[trajectory],linestyle='--',linewidth=0.5,color='red')
-                
-            # Label axes
-            axes[i].set_ylabel(trajectory)
-            
-            if i != (n_trajectories-1):
-                axes[i].set_xticklabels([])
-                
-        axes[n_trajectories-1].set_xlabel("Step")
-        
-        return axes
-            
-            
+    def spec_optimize(self, target, graph):
+        '''Specifies target and optimizes the graph
+        '''
+        return self.spec(target).optimize(graph)
+
+    @property
+    def weights__(self):
+        '''Reports weights utilized
+        '''
+        return self._weights
+    
+    @property
+    def miniature__(self):
+        '''Reports the optimized miniature
+        '''
+        return self._miniature
+    
+    @property
+    def metrics__(self):
+        '''Reports the current metrics of the annealer
+        '''
+        return self._metrics[0]
+    
+    @property
+    def loss__(self):
+        '''Reports the current loss of the annealer
+        '''
+        return self._loss[0]
+    
+    @property
+    def state__(self):
+        '''Reports the current state of the annealer
+        '''
+        dictionary = {
+            "Iteration": self.n_iterations_,
+            "Beta": self._beta,
+            "Metrics": self._metrics[0]
+        }
+
+        return dictionary
+         
 class CoarseNET:
     '''
     A class that implements the CoarseNET algorithm for an unweighted, 
