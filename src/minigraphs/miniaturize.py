@@ -5,6 +5,7 @@
     - Date Last Modified: September 2024
 '''
 
+from minigraphs.callback import LoggingCallback, EarlyStoppingCallback
 import numpy as np
 import networkx as nx
 import pandas as pd
@@ -19,7 +20,8 @@ import matplotlib.pyplot as plt
 from abc import ABC,abstractmethod
 from collections import deque
 from pydantic import BaseModel, validate_call
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
+from dataclasses import dataclass, field
 
 NX_DENSITY = lambda G: nx.density(G)
 NX_CLUSTERING = lambda G: nx.average_clustering(G)
@@ -103,6 +105,16 @@ class EvaluatorDict:
     def items(self):
         return {key: func(self.object) for key, func in self.dictionary.items()}.items()
 
+@dataclass
+class OptimizerState:
+    step: int = 0
+    iteration: int = 0
+    beta: int = 0 
+    metrics: List = field(default_factory=list)
+    loss: List = field(default_factory=list)
+    stop: bool = False 
+    is_fitted: bool = False
+
 class MH:
     """
     An MH-based annealer to miniaturize a graph.
@@ -122,28 +134,28 @@ class MH:
     def __init__(
             self,
             metrics_functions: dict [str, Callable],
-            schedule: float | Callable = 0,
+            schedule: float | Callable = float('inf'),
             metrics_weights: dict [str, float] = {},
             n_changes: int = 1,
-            tol: float | None = None,
-            max_iterations: int | None = None,
+            max_iterations: int = 1000,
             copy: bool = False,
             warm_start: bool = False,
-            monitor: str = 'loss'
+            norm: str = 'l1',
+            callbacks: List = []
         ):
         # Initialize attributes
         self.metrics_functions = metrics_functions 
         self.metrics_weights = metrics_weights
         self.n_changes = n_changes
-        self.tol = tol
         self.max_iterations = max_iterations
         self.schedule = schedule
         self.copy = copy
         self.warm_start = warm_start
-        self.monitor = monitor
+        self.norm = norm
+        self.callbacks = callbacks
 
-        # Initialize 2nd order attributes
-        self.is_fitted = False
+        # Initialize internal state
+        self._state = OptimizerState()
 
     def compute_graph_metrics(self, graph):
         '''Compute the metrics of a graph
@@ -163,10 +175,9 @@ class MH:
             
         return diff
 
-    def compute_loss(self, metrics, p=1):
-        '''Compute the induced loss of the graph
+    def compute_loss(self, diff, p=1):
+        '''Compute the induced loss of the graph from the differences
         '''
-        diff = self.compute_diff(metrics)
         loss = 0
 
         for metric, value in diff.items():
@@ -213,7 +224,7 @@ class MH:
             
             # Implement change
             action.do(self._miniature)
-            self._actions.append(self._miniature)   
+            self._actions.append(action)   
 
     def _undo(self):
         '''Reverses changes made to the graph
@@ -239,8 +250,7 @@ class MH:
             metrics = self.compute_graph_metrics(target)
 
         self.target_metrics_ = metrics
-        self.is_fitted = True
-        self.n_iterations_ = 0
+        self._state.is_fitted = True
 
         return self
 
@@ -254,20 +264,12 @@ class MH:
             self._weights = self.metrics_weights
 
         # Validate fitting
-        if not self.is_fitted:
+        if not self._state.is_fitted:
             raise NotFittedError("ERROR: Target metrics not yet specified.")
         
         # Validate schedule
-        if isinstance(self.schedule ,int | float):
+        if isinstance(self.schedule, int | float):
             self._schedule = lambda t: self.schedule
-
-        # Validate stopping criteria
-        if (self.max_iterations is None) and (self.tol is None):
-            raise ValueError("Error: only one of 'max_iterations' and 'tol' can be unspecified'")
-        elif self.max_iterations is None:
-            self.max_iterations = np.inf 
-        elif self.tol is None:
-            self.tol = 0
 
         # Validate copy
         if self.copy:
@@ -275,37 +277,66 @@ class MH:
         else:
             self._miniature = graph
 
+        # Validate norm
+        match self.norm:
+            case 'l1':
+                p = 1
+            case 'l2':
+                p = 2
+                
         # Compute metrics & loss
-        self._metrics = [self.compute_graph_metrics(self._miniature), None]
-        self._loss = [self.compute_loss(self._metrics[0]), None]
+        self._state.metrics = [self.compute_graph_metrics(self._miniature), None]
+        self._state.diff = [self.compute_diff(self._state.metrics[0]),  None]
+        self._state.loss = [self.compute_loss(self._state.diff[0],p), None]
 
         # Initialize
-        self._step = 0
+        self._state.step = 0
         
         if not self.warm_start:
-            self.n_iterations_ = 0
+            # Reset iteration counter
+            self._state.iteration = 0
+            
+            # Reset callbacks
+            for callback in self.callbacks:
+                callback._before_optimization(self._state)
 
-        while (self._step < self.max_iterations) and (self._loss[0] >= self.tol):
+        while (self._state.step < self.max_iterations) and (not self._state.stop):
             # Modify graph
             self._do()
 
             # Calculate acceptance parameters
-            self._beta = self._schedule(self.n_iterations_)
+            self._state.beta = self._schedule(self._state.iteration)
 
-            self._metrics[1] = self.compute_graph_metrics(self._miniature)
-            self._loss[1] = self.compute_loss(self._metrics[1])
+            self._state.metrics[1] = self.compute_graph_metrics(self._miniature)
+            self._state.diff[1] = self.compute_diff(self._state.metrics[1])
+            self._state.loss[1] = self.compute_loss(self._state.diff[1],p)
             
             # Check for change
-            if self._accept(self._beta, self._loss):
-                self._metrics[0] = self._metrics[1]
-                self._loss[0] = self._loss[1]
+            if self._accept(self._state.beta, self._state.loss):
+                self._state.metrics[0] = self._state.metrics[1]
+                self._state.diff[0] = self._state.diff[1]
+                self._state.loss[0] = self._state.loss[1]
             else:
                 # Undo Changes
-                self._undo()    
+                self._undo()     
 
             # Increase step & total number of iterations
-            self._step += 1
-            self.n_iterations_ += 1
+            self._state.step += 1
+            self._state.iteration += 1
+
+            # Apply callbacks
+            for callback in self.callbacks:
+                callback._on_iteration_end(self._state)
+
+        # End of optimization callbacks
+        for callback in self.callbacks:
+            callback._after_optimization(self._state)
+
+            if isinstance(callback, LoggingCallback):
+                self._log = callback
+
+            if isinstance(callback, EarlyStoppingCallback):
+                self.distance__ = callback.distance
 
         return self
     
@@ -314,6 +345,12 @@ class MH:
         '''
         return self.spec(target).optimize(graph)
 
+    @property 
+    def metrics_keys(self):
+        '''Report the names of the metrics
+        '''
+        return self.metrics_functions.keys()
+    
     @property
     def weights__(self):
         '''Reports weights utilized
@@ -330,25 +367,30 @@ class MH:
     def metrics__(self):
         '''Reports the current metrics of the annealer
         '''
-        return self._metrics[0]
+        return self._state.metrics[0]
     
     @property
     def loss__(self):
         '''Reports the current loss of the annealer
         '''
-        return self._loss[0]
+        return self._state.loss[0]
     
     @property
     def state__(self):
         '''Reports the current state of the annealer
         '''
         dictionary = {
-            "Iteration": self.n_iterations_,
-            "Beta": self._beta,
-            "Metrics": self._metrics[0]
+            "Iteration": self._state.iteration,
+            "Beta": self._state.beta,
+            "Loss": self._state.loss[0],
+            "Metrics": self._state.metrics[0]
         }
 
         return dictionary
+    
+    @property 
+    def log__(self):
+        return self._log.log
          
 class CoarseNET:
     '''
