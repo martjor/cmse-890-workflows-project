@@ -83,28 +83,6 @@ class Switch(Change):
         G.remove_edge(new[0],new[1])
         G.add_edge(old[0],old[1])
 
-class EvaluatorDict:
-    '''Evaluator Class
-    '''
-    def __init__(self, dictionary: Dict[str, Callable], object):
-        self.dictionary = dictionary
-        self.object = object 
-        
-    def __getitem__(self, key):
-        return self.dictionary[key](self.object)
-    
-    def __setitem__(self, key, func: Callable):
-        self.dictionary[key] = func
-    
-    def keys(self):
-        return self.dictionary.keys()
-    
-    def values(self):
-        return [func(self.object) for func in self.dictionary.values()]
-    
-    def items(self):
-        return {key: func(self.object) for key, func in self.dictionary.items()}.items()
-
 @dataclass
 class OptimizerState:
     step: int = 0
