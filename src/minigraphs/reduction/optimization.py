@@ -14,15 +14,6 @@ from typing import Callable
 from typing import Dict, Tuple, List
 from dataclasses import dataclass, field
 
-def sigmoid(x,x0,k):
-    return 1 / (1 + np.exp(-k*(x-x0)))
-
-def schedule_sigmoid(t_max,beta_max=1):
-    k = 2*np.log(19)/t_max 
-    t0 = t_max / 2
-    
-    return lambda t: sigmoid(t,t0,k) * beta_max
-
 @dataclass
 class OptimizerState:
     step: int = 0
