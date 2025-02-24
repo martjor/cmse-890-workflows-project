@@ -6,21 +6,11 @@
 '''
 
 from minigraphs.callback import LoggingCallback, EarlyStoppingCallback
-from minigraphs.changes import Add, Remove, Switch
+from minigraphs.changes import Add, Remove, Switch, ChangeSampler
 import numpy as np
-import networkx as nx
-import pandas as pd
 from copy import deepcopy
-import scipy.sparse
-from scipy.special import comb
-import scipy
-from sklearn.preprocessing import normalize
 from sklearn.exceptions import NotFittedError
 from typing import Callable 
-import matplotlib.pyplot as plt
-from abc import ABC,abstractmethod
-from collections import deque
-from pydantic import BaseModel, validate_call
 from typing import Dict, Tuple, List
 from dataclasses import dataclass, field
 
@@ -43,6 +33,14 @@ class OptimizerState:
     stop: bool = False 
     is_fitted: bool = False
 
+balanced_sampler = ChangeSampler(
+    changes=[
+        ('add', Add, 1/3),
+        ('remove', Remove, 1/3),
+        ('switch', Switch, 1/3)
+    ]
+)
+
 class MH:
     """
     An MH-based annealer to miniaturize a graph.
@@ -63,7 +61,7 @@ class MH:
             metrics_functions: dict [str, Callable],
             schedule: float | Callable = float('inf'),
             metrics_weights: dict [str, float] = {},
-            change = Add(),
+            change = balanced_sampler,
             max_iterations: int = 1000,
             copy: bool = False,
             warm_start: bool = False,
@@ -150,6 +148,8 @@ class MH:
         # Validate schedule
         if isinstance(self.schedule, int | float):
             self._schedule = lambda t: self.schedule
+        elif callable(self.schedule):
+            self._schedule = self.schedule
 
         # Validate copy
         if self.copy:
@@ -182,7 +182,7 @@ class MH:
 
         while (self._state.step < self.max_iterations) and (not self._state.stop):
             # Apply change to graph
-            self.change.apply(self._miniature)
+            change = self.change(self._miniature)
 
             # Calculate acceptance parameters
             self._state.beta = self._schedule(self._state.iteration)
@@ -198,7 +198,7 @@ class MH:
                 self._state.loss[0] = self._state.loss[1]
             else:
                 # Revert change
-                self.change.revert(self._miniature)
+                change.revert(self._miniature)
 
             # Increase step & total number of iterations
             self._state.step += 1

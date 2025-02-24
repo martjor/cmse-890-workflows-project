@@ -1,9 +1,8 @@
-from minigraphs.miniaturize import MH
+from minigraphs.reduction import MH
 from minigraphs.callback import LoggingCallback, EarlyStoppingCallback
 import networkx as nx
 
 # Graphs
-er_100_010 = nx.read_adjlist('graphs/ER_100_0.10.adjlist')
 graph = nx.erdos_renyi_graph(100, 0.1, seed=42)
 
 functions = {
@@ -131,6 +130,7 @@ def test_callbacks():
     annealer.optimize(graph)
 
     assert annealer.log__.shape[0] == 2 * n_iterations
+
 
 
 

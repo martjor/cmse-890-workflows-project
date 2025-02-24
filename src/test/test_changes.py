@@ -1,77 +1,86 @@
 import networkx as nx
 import random 
-import minigraphs.changes as changes
-
+from minigraphs.changes import Add, Remove, Switch, ChangeSampler
 random.seed(42)
 
-def test_Add():
+def test_add():
     graph = nx.Graph()
     graph.add_nodes_from([0,1,2])
 
-    add = changes.Add()
+    changes = []
+    for _ in range(3):
+        changes.append(Add(graph))
 
-    add.apply(graph)
-    assert graph.number_of_edges() == 1
-
-    add.apply(graph)
-    assert graph.number_of_edges() == 2
-
-    add.apply(graph)
     assert graph.number_of_edges() == 3
 
-    assert add.apply(graph) is False
+    assert not Add(graph).edges 
 
-    add.revert(graph)
-    assert graph.number_of_edges() == 2
+    for change in reversed(changes):
+        change.revert(graph)
 
-
-def test_Remove():
-    graph = nx.complete_graph(3)
-
-    remove = changes.Remove()
-
-    remove.apply(graph)
-    assert graph.number_of_edges() == 2
-
-    remove.apply(graph)
-    assert graph.number_of_edges() == 1
-
-    remove.apply(graph)
     assert graph.number_of_edges() == 0
 
-    assert remove.apply(graph) is False
+def test_remove():
+    graph = nx.complete_graph(3)
 
-    remove.revert(graph)
-    assert graph.number_of_edges() == 1
+    changes = []
+    for _ in range(3):
+        changes.append(Remove(graph))
 
-    remove.revert(graph)
-    assert graph.number_of_edges() == 2
+    assert graph.number_of_edges() == 0
+
+    assert not Remove(graph).edges
+
+    for change in reversed(changes):
+        change.revert(graph)
+
+    assert graph.number_of_edges() == 3
 
 def test_switch():
     graph = nx.Graph()
     graph.add_nodes_from([0,1,2])
-    graph.add_edge(0,1)
 
-    switch = changes.Switch()
+    assert not Switch(graph).edges
 
-    switch.apply(graph)
-    assert graph.number_of_edges() == 1
+    edges = ((1,0),(2,1))
+    graph.add_edges_from(edges)
 
-    switch.apply(graph)
-    assert graph.number_of_edges() == 1
+    changes = []
+    for _ in range(10):
+        change = Switch(graph)
+        assert graph.number_of_edges() == 2
 
-    switch.revert(graph)
-    assert graph.number_of_edges() == 1
+        edges = change.edges
+        if edges:
+            assert edges[0] != edges[1]
 
-    switch.revert(graph)
-    assert graph.number_of_edges() == 1
+        changes.append(change)
 
-    assert (0,1) == list(nx.edges(graph))[0]
+    for change in reversed(changes):
+        change.revert(graph)
 
-    try: 
-        switch.revert(graph)
-    except Exception as e:
-        assert isinstance(e, IndexError)
+    assert list(nx.edges(graph)) == [(0,1),(1,2)]
+
+def test_sampler():
+    change = ChangeSampler(
+        changes=[
+            ('add', Add, 1/3),
+            ('remove', Remove, 1/3),
+            ('switch', Switch, 1/3)
+        ]
+    )
+
+    graph = nx.Graph()
+    graph.add_nodes_from(range(10))
+
+    changes = []
+    for _ in range(30):
+        changes.append(change(graph))
+
+    for change in reversed(changes):
+        change.revert(graph)
+
+    assert not list(nx.edges(graph))
 
 
     
