@@ -6,7 +6,9 @@ Python package to miniaturize large networks using the Metropolis-Hastings Algor
 """
 
 _submodules = [
-    "reduction"
+    "reduction",
+    "callback",
+    "inspection"
 ]
 
 __all__ = _submodules
