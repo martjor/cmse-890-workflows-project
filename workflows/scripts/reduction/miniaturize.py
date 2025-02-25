@@ -15,40 +15,53 @@ mpiexec -n $number_of_nodes python parallel_tempering_main.py
 import click
 from mpi4py import MPI
 import numpy as np
-from minigraphs.miniaturize import MH
-from minigraphs.graph import spectral_radius
-import networkx as nx
+from minigraphs.reduction import MH
+from minigraphs.callback import LoggingCallback, EarlyStoppingCallback
+
 from scipy.sparse import save_npz
 import os
 import sys
 import yaml
 import pandas as pd
+import networkx as nx
 from scripts.utils.io import StreamToLogger
 from scripts.reduction.pt_setup import DICT_METRICS_FUNCS
 import logging
+import tqdm
 
 @click.command()
-@click.argument('metrics-file',type=click.Path(exists=True))
-@click.argument('params-file',type=click.Path(exists=True))
-@click.argument('adjacency-file',type=click.Path())
-@click.argument('trajectories-dir',type=click.Path())
-@click.argument('shrinkage',type=click.FLOAT)
-@click.argument('targets',nargs=-1)
-@click.option('--n_changes',default=10,help='Number of changes proposed at each iteration')
-@click.option('--n_steps',default=20000,help='Number of miniaturization steps')
-@click.option('--n_substeps',default=200,help='Number of miniaturization substeps')
-@click.option('--log-file',default=None)
+@click.argument('metrics-file',
+                type=click.Path(exists=True))
+@click.argument('params-file',
+                type=click.Path(exists=True))
+@click.argument('adjacency-file',
+                type=click.Path())
+@click.argument('trajectories-dir',
+                type=click.Path())
+@click.argument('shrinkage',
+                type=click.FLOAT)
+@click.argument('targets',
+                nargs=-1)
+@click.option('--n_steps',
+              default=20000,
+              help='Number of miniaturization steps')
+@click.option('--n_substeps',
+              default=200,
+              help='Number of miniaturization substeps')
+@click.option('--log-file',
+              default=None)
+
 def miniaturize(metrics_file,
                 params_file,
                 adjacency_file,
                 trajectories_dir,
                 shrinkage,
                 targets,
-                n_changes,
                 n_steps,
                 n_substeps,
                 log_file):
-    
+    ##### SETUPP #####
+    #================#
     # Configure logging to write to the Snakemake log file
     logging.basicConfig(
         filename=log_file,
@@ -57,7 +70,6 @@ def miniaturize(metrics_file,
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    # Replace stdout and stderr with the logger
     sys.stdout = StreamToLogger(logging.getLogger(), logging.INFO)
     sys.stderr = StreamToLogger(logging.getLogger(), logging.ERROR)
     
@@ -66,56 +78,6 @@ def miniaturize(metrics_file,
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.size
-    
-    ##### READ INPUT FILES #####
-    #==========================#
-    if size % 2:
-        raise Exception(f"An even number of cores is required ({size} cores specified)")
-
-    # Target metrics
-    with open(metrics_file,'r') as file:
-        graph_metrics = yaml.safe_load(file)
-    
-    # Miniaturization Parameters
-    with open(params_file,'r') as file:
-        params = yaml.safe_load(file)
-
-    ##### INITIALIZE PARALLEL TEMPERING REPLICAS #####
-    #================================================#
-    # Iteration parameters
-    cycles = [n_substeps] * (n_steps // n_substeps)
-    remainder = n_steps % n_substeps
-    if remainder != 0:
-        cycles += [remainder]
-
-    # Replica parameters
-    n_vertices = int((1-shrinkage) * graph_metrics['n_nodes'])
-    beta_arr = np.array([1/8,1/4,1/2,1,2,4])
-    B0 = beta_arr[rank] * params['beta']
-
-    # Retrieve specified metrics, parameters and reduction functions
-    metrics={}
-    functions={}
-    for target in targets:
-        metrics[target] = graph_metrics[target]
-        functions[target] = DICT_METRICS_FUNCS[target]
-        
-    # Initialize seed graph
-    G = nx.erdos_renyi_graph(n_vertices,graph_metrics['density'])
-
-    # Display Message
-    if rank == 0:
-        print(f"Miniaturizing graph to size {n_vertices} ({shrinkage * 100}% miniaturization)...")
-        print(f"Beta opt: {params['beta']}\n")
-        print(f"\t - Target metrics: {metrics}")
-        print(f"\t - Weights: {params['weights']}")
-        print(f"\t - Functions: {functions}\n")
-
-    # Initialize replica
-    replica = MH(functions,
-                 schedule=lambda beta: B0,
-                 n_changes=n_changes,
-                 weights=params['weights'])
 
     def exchange(E0: float,
                  B0: float) -> float:
@@ -168,56 +130,95 @@ def miniaturize(metrics_file,
         B0 = swap(E0,B0,flag_send, flag_recv, ref=-1)
         
         return B0
+    
+    ##### Validate inputs #####
+    #==========================#
+    if size % 2:
+        raise Exception(f"An even number of cores is required ({size} cores specified)")
 
-    list_trajectories = []
-    for cycle, steps in enumerate(cycles):
-        if rank == 0:
-            print(f"\nCycle {cycle+1}/{len(cycles)} <<<\n")
-            verbose = True 
-        else:
-            verbose = False
-            
-        # Optimize graph
-        replica.transform(G,
-                          metrics,
-                          n_iterations=steps)
+    # Target metrics
+    with open(metrics_file,'r') as file:
+        graph_metrics = yaml.safe_load(file)
+    
+    # Miniaturization Parameters
+    with open(params_file,'r') as file:
+        params = yaml.safe_load(file)
+
+    weights = {metric: weigth for metric, weigth in params.items() if metric != "beta"}
+    beta_optimal = params['beta']
+
+    ##### INITIALIZE PARALLEL TEMPERING REPLICAS #####
+    #================================================#
+
+    # Replica parameters
+    n_vertices = int((1-shrinkage) * graph_metrics['n_nodes'])
+    beta_arr = np.array([1/8,1/4,1/2,1,2,4])
+    beta = beta_arr[rank] * beta_optimal
+
+    # Retrieve specified metrics, parameters and reduction functions
+    metrics={}
+    functions={}
+    for target in targets:
+        metrics[target] = graph_metrics[target]
+        functions[target] = DICT_METRICS_FUNCS[target]
         
-        # Swap temperatures
-        trajectories = replica.trajectories_.copy()
-        E0 = trajectories['Energy'].iat[-1]
-        B0 = replica.beta
+    # Initialize seed graph
+    graph = nx.erdos_renyi_graph(n_vertices, graph_metrics['density'])
+
+    replica = MH(functions,
+        schedule=beta,
+        copy=False,
+        warm_start=True,
+        weights=weights,
+        callbacks=[EarlyStoppingCallback, LoggingCallback],
+        max_iterations=n_substeps
+    )
+
+    replica.spec(metrics)
+
+    # Display Message
+    if rank == 0:
+        print(f"Miniaturizing graph to size {n_vertices} ({shrinkage * 100}% miniaturization)...")
+        print(f"Beta opt: {beta_optimal}\n")
+        print(f"\t - Target metrics: {metrics}")
+        print(f"\t - Weights: {weights}")
+        print(f"\t - Functions: {functions}\n")
+
+    for step in tqdm(range(n_steps), desc="Miniaturizing Graph"):            
+        # Optimize graph
+        replica.optimize(graph)
+        
+        # Swap temperatures #CHANGE ME FOR STATE
+        loss = replica.loss__
+        beta = replica.beta__
 
         # Update schedule
-        replica.schedule = lambda beta: exchange(E0,B0)
-        
-        G = replica.graph_
-        
-        # Store trajectories
-        list_trajectories.append(replica.trajectories_.copy())
-
-    # Create complete trajectories
-    trajectories_all = pd.concat(list_trajectories)
+        beta_new = exchange(loss, beta)
+        replica.schedule = beta_new
 
     # Store your energy and rank
-    my_energy_core = np.array([(E0,rank)],dtype=[('energy',np.float64), ('rank',np.int32)])
+    my_energy_core = np.array([(replica.loss__,rank)],dtype=[('loss',np.float64), ('rank',np.int32)])
+
     # allocate memory for min energy and rank
-    min_energy_core = np.empty(1,dtype=[('energy',np.float64), ('rank',np.int32)])
+    min_energy_core = np.empty(1,dtype=[('loss',np.float64), ('rank',np.int32)])
 
     # reduce to all ranks the mimum energy and rank that has the mimimum
     comm.Allreduce([my_energy_core, 1, MPI.DOUBLE_INT], [min_energy_core, 1, MPI.DOUBLE_INT], op=MPI.MINLOC)
 
     if rank == min_energy_core['rank']:
         # Store final adjacency
-        save_npz(adjacency_file,nx.to_scipy_sparse_array(replica.graph_))
+        save_npz(adjacency_file, nx.to_scipy_sparse_array(graph))
         
         # Create directory for trajectories
         os.makedirs(trajectories_dir)
         
     # Store trajectories
     comm.Barrier()
-    trajectories_all.to_parquet(f"{trajectories_dir}/replica_{rank}.parquet",
-                                engine='pyarrow',
-                                compression='snappy')
+    replica.log__.to_parquet(
+        f"{trajectories_dir}/replica_{rank}.parquet",
+        engine='pyarrow',
+        compression='snappy'
+    )
     
 if __name__ == '__main__':
     miniaturize()
