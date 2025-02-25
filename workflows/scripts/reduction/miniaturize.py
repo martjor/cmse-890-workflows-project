@@ -16,7 +16,7 @@ import click
 from mpi4py import MPI
 import numpy as np
 from minigraphs.reduction import MH
-from minigraphs.callback import LoggingCallback, EarlyStoppingCallback
+from minigraphs.callback import LoggingCallback
 
 from scipy.sparse import save_npz
 import os
@@ -27,7 +27,7 @@ import networkx as nx
 from scripts.utils.io import StreamToLogger
 from scripts.reduction.pt_setup import DICT_METRICS_FUNCS
 import logging
-import tqdm
+from tqdm import tqdm
 
 @click.command()
 @click.argument('metrics-file',
@@ -169,8 +169,8 @@ def miniaturize(metrics_file,
         schedule=beta,
         copy=False,
         warm_start=True,
-        weights=weights,
-        callbacks=[EarlyStoppingCallback, LoggingCallback],
+        metrics_weights=weights,
+        callbacks=[LoggingCallback()],
         max_iterations=n_substeps
     )
 
