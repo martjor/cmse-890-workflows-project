@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-from minigraphs.miniaturize import MH
-from minigraphs.graph import spectral_radius
+from minigraphs.reduction import MH
+from minigraphs.callback import LoggingCallback
+from scripts.reduction import pt_setup as setup
 
-from numpy import log, inf, nan
+from math import log, inf, nan 
 import pandas as pd 
 import networkx as nx
 import sys
-import os
 import yaml
 from scripts.utils.io import StreamToLogger
 import logging
@@ -33,30 +33,41 @@ def weights(targets,
             metrics_file,
             params_file,
             shrinkage,
-            n_changes,
             n_samples,
             n_iterations):
-    
-    # Retrieve Graph Metrics
+    '''
+    '''
+    ### VALIDATE INPUTS ###
     with open(metrics_file) as file:
         graph_metrics = yaml.safe_load(file)
-        
-    # Construct miniaturization target metrics and functions
+
+    # Validate shrinkage factor
+    n_vertices = int(graph_metrics['n_nodes'] * (1-shrinkage))
+    if (n_vertices < 1):
+            raise ValueError
+    
     metrics={}
     functions={}
     for target in targets:
         metrics[target] = graph_metrics[target]
         functions[target] = DICT_METRICS_FUNCS[target]
 
-    # Calculate miniature size
-    try:
-        n_vertices = int(graph_metrics['n_nodes'] * (1-shrinkage))
-        
-        if (n_vertices < 1):
-            raise ValueError
-        
-    except ValueError:
-        print("Error: Invalid number of vertices in the miniature")
+    ### Optimizer Setup ###
+    graph = nx.erdos_renyi_graph(n_vertices, graph_metrics['density'])
+
+    # Instantiate Optimizer
+    annealer = MH(
+         functions,
+         copy=True,
+         warm_start=False,
+         schedule=0,
+         change=setup.dict_changes['random'],
+         callbacks=[LoggingCallback()],
+         max_iterations=n_iterations
+    )
+
+    # Fit optimizer to metrics
+    annealer.spec(metrics)
     
     print(f"Calculating parameters for graph at graph at {metrics_file}")
     print(f"\t - Size: {n_vertices} nodes ({shrinkage * 100:.02f}% miniaturization)")
@@ -64,71 +75,54 @@ def weights(targets,
     print(f"\t - Number of samples: {n_samples}\n")
 
     # Calculate weights
-    params = []
+    parameters = []
     for i in range(n_samples):
-        print(f"Sweep {i+1}/{n_samples}")
-        
-        # Construct replica
-        replica = MH(functions,
-                     schedule=lambda beta:0,
-                     n_changes=n_changes)
-        
-        # Transform ER graph
-        G = nx.erdos_renyi_graph(n_vertices,graph_metrics['density'])
-        replica.transform(G,
-                          metrics,
-                          n_iterations=n_iterations)
+        print(f"Sweep {i+1}/{n_samples}...")
 
-        # Retrieve trajectories
-        df = replica.trajectories_
-        weights = dict(1/df[replica.metrics].diff().abs().mean())
+        # Reset weights
+        annealer.metrics_weights = {metric: 1.0 for metric in metrics.keys()}
         
-        print("Weights:")
-        print(weights)
+        # Initiate optimization
+        annealer.optimize(graph)
 
-        # Calculate optimal beta
-        replica = MH(functions,
-                     schedule=lambda beta:0,
-                     n_changes=n_changes,
-                     weights=weights)
+        # Retrieve trajectories & calculate weights
+        df = annealer.log__
+        weights = {
+            metric: 1/df[f"m_{metric}"].diff().abs().mean() for metric in metrics.keys()
+        }
+
+        # Update weights
+        annealer.metrics_weights = weights
         
         # Transform ER graph
-        G = nx.erdos_renyi_graph(n_vertices,graph_metrics['density'])
-        replica.transform(G,
-                          metrics,
-                          n_iterations=n_iterations)
+        annealer.optimize(graph)
 
-        df = replica.trajectories_
+        # Retrieve trajectories & calculate optimal beta
+        beta = -log(0.23) * 1/df['loss'].diff().abs().mean()
 
-        beta = -log(0.23) * 1/df['Energy'].diff().abs().mean()
+        # Store beta and weights
+        weights['beta'] = beta
+        parameters.append(weights)
 
-        print(f"Beta: {beta}\n")
+        print(df)
+        print("Beta:", beta)
+        print("Weights:", weights)
 
-        params.append([beta] + list(weights.values()))
+    parameters = pd.DataFrame(parameters)
+    parameters.info()
+    parameters.dropna(inplace=True)
+    parameters = parameters.mean().to_dict()
 
-    params = pd.DataFrame(params,columns=['beta'] + list(weights.keys()))
-    print("Measeured parameters:")
-    print(params,f"\n")
-
-    params.replace([inf, -inf], nan, inplace=True)
-    params = params.mean()
-    print("Final parameters:")
-    print(params)
+    print("Measeured parameters:", parameters)
 
     # Save to yaml
-    params = params.to_dict()
-    params_dict = {'beta': params['beta']}
-    params.pop('beta')
-    params_dict['weights'] = params 
-    
     with open(params_file,'w') as file:
-        yaml.dump(params_dict,file,default_flow_style=False)
+        yaml.dump(parameters, file, default_flow_style=False)
         
 weights(snakemake.params.targets,
         snakemake.input[0],
         snakemake.output[0],
         snakemake.params[0]['alpha'],
-        snakemake.params[0]['n_changes'],
         snakemake.params[0]['n_trials'],
-        snakemake.params[0]['n_steps'])
+        snakemake.params[0]['n_iterations'])
     

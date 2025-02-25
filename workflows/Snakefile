@@ -32,10 +32,10 @@ rule all:
 def miniaturization_params_params(wildcards):
     # Configuration for the current miniature
     config_min = config['miniatures'][wildcards.miniature]
-    params = {'alpha': config_min['alpha'],
-              'n_changes': config_min['n_changes'],
-              'n_trials': config_min['params']['n_trials'],
-              'n_steps': config_min['params']['n_steps']
+    params = {
+        'alpha': config_min['alpha'],
+        'n_trials': config_min['setup']['n_trials'],
+        'n_iterations': config_min['setup']['n_iterations']
     }
 
     return params
