@@ -7,6 +7,7 @@ DICT_METRICS_FUNCS = {
     'n_edges': nx.number_of_edges,
     'density': nx.density,
     'assortativity': nx.degree_assortativity_coefficient,
+    'assortativity_norm': lambda graph: (nx.degree_assortativity_coefficient(graph) + 1)/2,
     'clustering': nx.average_clustering,
     'eig_1': lambda graph: spectral_radius(graph),
     'dd_ratio': lambda graph: degree_distribution_moment(graph,2) / degree_distribution_moment(graph)
