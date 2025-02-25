@@ -35,7 +35,7 @@ def miniaturization_params_params(wildcards):
     params = {
         'alpha': config_min['alpha'],
         'n_trials': config_min['setup']['n_trials'],
-        'n_iterations': config_min['setup']['n_iterations']
+        'n_iterations': config_min['setup']['n_steps']
     }
 
     return params
@@ -98,7 +98,6 @@ rule miniaturization:
     shell:
         "{resources.mpi} -n {resources.tasks} python -m scripts.reduction.miniaturize"
         " {input[0]} {input[1]} {output[0]} {output[1]} {params[0][alpha]} {params.targets}"
-        " --n_changes {params[0][n_changes]}"
         " --n_steps {params[0][pt][n_steps]}"
         " --n_substeps {params[0][pt][n_substeps]}"
         " --log-file {log[0]}"
