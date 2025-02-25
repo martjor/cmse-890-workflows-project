@@ -52,23 +52,16 @@ def weights(targets,
         metrics[target] = graph_metrics[target]
         functions[target] = DICT_METRICS_FUNCS[target]
 
-    ### Optimizer Setup ###
-    graph = nx.erdos_renyi_graph(n_vertices, graph_metrics['density'])
-
     # Instantiate Optimizer
     annealer = MH(
          functions,
          copy=True,
          warm_start=False,
          schedule=0,
-         change=setup.dict_changes['random'],
          callbacks=[LoggingCallback()],
          max_iterations=n_iterations
     )
 
-    # Fit optimizer to metrics
-    annealer.spec(metrics)
-    
     print(f"Calculating parameters for graph at graph at {metrics_file}")
     print(f"\t - Size: {n_vertices} nodes ({shrinkage * 100:.02f}% miniaturization)")
     print(f"\t - Number iterations per sample: {n_iterations}")
@@ -83,7 +76,8 @@ def weights(targets,
         annealer.metrics_weights = {metric: 1.0 for metric in metrics.keys()}
         
         # Initiate optimization
-        annealer.optimize(graph)
+        graph = nx.erdos_renyi_graph(n_vertices, graph_metrics['density'])
+        annealer.spec_optimize(metrics, graph)
 
         # Retrieve trajectories & calculate weights
         df = annealer.log__
@@ -98,6 +92,7 @@ def weights(targets,
         annealer.optimize(graph)
 
         # Retrieve trajectories & calculate optimal beta
+        df = annealer.log__
         beta = -log(0.23) * 1/df['loss'].diff().abs().mean()
 
         # Store beta and weights
