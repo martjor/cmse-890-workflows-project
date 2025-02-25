@@ -13,6 +13,7 @@ from sklearn.exceptions import NotFittedError
 from typing import Callable 
 from typing import Dict, Tuple, List
 from dataclasses import dataclass, field
+from inspect import isclass
 
 @dataclass
 class OptimizerState:
@@ -154,6 +155,11 @@ class MH:
                 p = 1
             case 'l2':
                 p = 2
+                
+        # Validate callbacks
+        for callback in self.callbacks:
+            if isclass(callback):
+                raise TypeError("ERROR: Callbacks should be instances not classes.")
                 
         # Compute metrics & loss
         self._state.metrics = [self.compute_graph_metrics(self._miniature), None]
