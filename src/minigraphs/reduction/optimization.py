@@ -246,16 +246,24 @@ class MH:
         '''
         return self._state.loss[0]
     
+    @property 
+    def beta__(self):
+        '''Reports the current inverse temperature of the annealer
+        '''
+        return self._state.beta
+    
     @property
     def state__(self):
         '''Reports the current state of the annealer
         '''
         dictionary = {
-            "Iteration": self._state.iteration,
-            "Beta": self._state.beta,
-            "Loss": self._state.loss[0],
-            "Metrics": self._state.metrics[0]
+            "iteration": self._state.iteration,
+            "beta": self._state.beta,
+            "loss": self._state.loss[0],
         }
+
+        for metric, value in self._state.metrics.items():
+            dictionary[f"m_{metric}"] = value
 
         return dictionary
     
