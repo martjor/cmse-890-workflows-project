@@ -10,6 +10,8 @@ graph = config['graph']
 methods = ["miniaturization","coarsening","sparsification"]
 miniatures = list(config['miniatures'].keys())
 
+density = [f"{value:.2e}" for value in np.arange(*config['sampling']['density'].values())]
+clustering = [f"{value:.2e}" for value in np.arange(*config['sampling']['clustering'].values())]
 
 rule all:
     input:
@@ -102,6 +104,40 @@ rule miniaturization:
         " --n_steps {params[0][pt][n_steps]}"
         " --n_substeps {params[0][pt][n_substeps]}"
         " --log-file {log[0]}"
+
+rule sample:
+    output:
+        "data/samples/sample_density={density}_clustering={clustering}/graph_adjacency.npz",
+    params:
+        density=lambda w: float(w.density), 
+        clustering=lambda w: float(w.clustering),
+        n_iterations=config['sampling']['n_iterations'],
+        n_vertices=config['sampling']['size']
+    log:
+        "logs/sampling/sample_{density}_{clustering}.log"
+    script:
+        "scripts/sampling/sample.py"
+
+rule estimate_r_naught:
+    input:
+        "data/samples/sample_density={density}_clustering={clustering}/sir_trajectories.npy"
+    output:
+        "data/samples/sample_density={density}_clustering={clustering}/r_naught.yaml"
+    script:
+        "scripts/sir/r_naught.py"
+
+rule heatmap:
+    input:
+        expand(
+            "data/samples/sample_density={density}_clustering={clustering}/{file}",
+            density=density,
+            clustering=clustering,
+            file=["graph_metrics.yaml","r_naught.yaml"]
+        )
+    output:
+        "results/samples/heatmap_sir.png",
+    notebook:
+        "scripts/sir/heatmap.py.ipynb"
 
 rule coarsen:
     '''Coarsens a graph dataset
@@ -222,7 +258,7 @@ rule sir:
     input:
         "{path}/graph_adjacency.npz",
     output:
-        "{path}/sir_trajectories.npy"
+        temp("{path}/sir_trajectories.npy")
     params:
         config=lambda w:config['sir']
     resources:
