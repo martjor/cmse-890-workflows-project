@@ -28,6 +28,7 @@ from scripts.utils.io import StreamToLogger
 from scripts.reduction.pt_setup import DICT_METRICS_FUNCS
 import logging
 from tqdm import tqdm
+import random
 
 @click.command()
 @click.argument('metrics-file',
@@ -163,7 +164,7 @@ def miniaturize(metrics_file,
         functions[target] = DICT_METRICS_FUNCS[target]
         
     # Initialize seed graph
-    graph = nx.erdos_renyi_graph(n_vertices, graph_metrics['density'])
+    graph = nx.erdos_renyi_graph(n_vertices, random.random() * 0.2)
 
     replica = MH(functions,
         schedule=beta,

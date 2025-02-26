@@ -11,6 +11,7 @@ import yaml
 from scripts.utils.io import StreamToLogger
 import logging
 from scripts.reduction.pt_setup import DICT_METRICS_FUNCS
+import random
 '''Calculates the parameters for the specified graph
 '''
 
@@ -76,7 +77,7 @@ def weights(targets,
         annealer.metrics_weights = {metric: 1.0 for metric in metrics.keys()}
         
         # Initiate optimization
-        graph = nx.erdos_renyi_graph(n_vertices, graph_metrics['density'])
+        graph = nx.erdos_renyi_graph(n_vertices, random.random() * 0.2)
         annealer.spec_optimize(metrics, graph)
 
         # Retrieve trajectories & calculate weights
