@@ -1,11 +1,13 @@
 import networkx as nx 
 from minigraphs.graph import spectral_radius, degree_distribution_moment
 from minigraphs import changes 
+from math import log10
 
 DICT_METRICS_FUNCS = {
     'n_nodes': nx.number_of_nodes,
     'n_edges': nx.number_of_edges,
     'density': nx.density,
+    'log10_density': lambda graph: log10(nx.density(graph)),
     'assortativity': nx.degree_assortativity_coefficient,
     'assortativity_norm': lambda graph: (nx.degree_assortativity_coefficient(graph) + 1)/2,
     'clustering': nx.average_clustering,
