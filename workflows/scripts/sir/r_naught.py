@@ -1,5 +1,5 @@
 import numpy as np 
-from utils.io import save_dict
+from scripts.utils.io import save_dict
 
 infected = np.load(snakemake.input[0])[:,1,:]
 
@@ -19,8 +19,8 @@ new_infected = np.diff(infected[idx], axis=1)
 r0 = new_infected / infected[idx,:-1]
 
 results = {
-    'mean': r0.mean(),
-    'std': r0.std()
+    'mean': float(r0.mean()),
+    'std': float(r0.std())
 }
 
 save_dict(snakemake.output[0], results)
