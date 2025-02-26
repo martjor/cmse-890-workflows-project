@@ -5,4 +5,4 @@ Description:
     Various utility functions to inspect graph manipulation algorithms
 """
 
-from .optimization import DisplayOptimization
+from .optimization import plot_loss, plot_losses, plot_schedules

@@ -2,12 +2,14 @@ import numpy as np
 import pandas as pd
 import yaml
 import shutil
+from itertools import combinations
 
 configfile: "config/config.yaml"
 
 graph = config['graph']
 methods = ["miniaturization","coarsening","sparsification"]
 miniatures = list(config['miniatures'].keys())
+
 
 rule all:
     input:
@@ -236,11 +238,10 @@ rule draw_miniaturization:
     '''
     input:
         "data/networks/{graph}/giant/graph_metrics.yaml",
-        "data/networks/{graph}/giant/miniaturization/{miniature}/graph_metrics.yaml",
+        "data/networks/{graph}/giant/miniaturization/{miniature}/weights.yaml",
         "data/networks/{graph}/giant/miniaturization/{miniature}/trajectories"
     output:
-        "results/{graph}/miniaturization/trajectories_plane_{miniature}.png",
-        "results/{graph}/miniaturization/trajectories_error_{miniature}.png"
+        "results/{graph}/miniaturization/report_{miniature}.png"
     notebook:
         "scripts/draw/miniaturization_trajectories.py.ipynb"
 

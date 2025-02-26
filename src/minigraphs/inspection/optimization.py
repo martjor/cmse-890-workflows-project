@@ -4,170 +4,108 @@ from matplotlib.cm import ScalarMappable
 import numpy as np
 from minigraphs.visualization import grad_plot
 
+def plot_loss(df, targets, weights, ax=None):
+        # Get axis
+        if ax is None: 
+            ax = plt.gca()
+        
+        df = df.copy()
 
-class DisplayOptimization:
-    def __init__(self, df, targets):
-        # Store
-        self.df = df 
-        self.targets = targets
-
-    def loss(self, ax=None):
-        df = self.df.copy()
-
-        metrics = [f"diff_{metric}" for metric in self.targets.keys()]
+        metrics = [f"diff_{metric}" for metric in targets.keys()]
 
         # Add differences
-        for metric, value in self.targets.items():
+        for metric, value in targets.items():
             df[f"diff_{metric}"] = np.abs(df[f"m_{metric}"] - value)
 
         # Define plotting metrics
         n_iterations = df.shape[0]
         x = np.arange(n_iterations)
-        baseline = np.zeros(n_iterations)
+        cmap = plt.get_cmap('YlOrRd')
+        previous_loss = 0
+        for i, metric in enumerate(targets.keys()):
+            column = f"diff_{metric}"
+            color = 0.2 + 0.8 * i / (len(metrics) - 1)
 
-        # Get axis
-        if ax is None: 
-            ax = plt.gca()
-    
-        for metric in metrics:
-            data = df[metric] + baseline
+            loss_so_far = weights[metric] * df[column]
+            if i != 0:
+                 loss_so_far += previous_loss
 
-            color = ax.plot(
-                data,
-                linewidth=0.5,
-                label=metric
-            )[0].get_color()
+            label = "Total Loss" if i == (len(metrics)-1) else None 
 
             ax.fill_between(
                 x,
-                data, 
-                baseline,
-                color=color,
-                alpha=0.3
+                loss_so_far, 
+                previous_loss,
+                alpha=0.4,
+                color=cmap(color),
+                label=f"{column.split('_')[1].capitalize()}"
             )
 
-            baseline = data
+            ax.plot(
+                x,
+                loss_so_far,
+                linewidth=0.5,
+                color=cmap(color),
+                label=label
+            )
 
-            ax.set_ylim([df[metrics[0]].min(), df['loss'].max()])
+            previous_loss = loss_so_far
 
-        ax.set_title("Total Loss Over Time")
+        final_loss = df['loss'].iat[-1]
+        ax.axhline(final_loss, linewidth=2.0, color='blue', linestyle=':')
+        ax.text(0.50 * n_iterations, final_loss * 1.1, f'Final Loss: {final_loss:.2f}',color='blue')
+        ax.set_title("Share of Total Loss Over Time")
         ax.set_ylabel("Loss")
         ax.set_xlabel("Iteration")
-        ax.legend()
+        ax.legend(title="Metric")
+        
+def plot_losses(dfs, ax=None):
+    # Get axis
+    if ax is None:
+        ax = plt.gca()
 
-        return ax
+    # Get colormap
+    cmap = plt.get_cmap('Greens')
 
-    def schedule(self, ax=None):
-        if ax is None: 
-            ax = plt.gca()
-
-        ax.plot(
-            self.df['beta'],
-            label='schedule'
-        )
-
-        ax.set_title("Schedule")
-        ax.set_ylabel("Beta")
-        ax.set_xlabel("Iteration")
-
-    def distance(self, ax=None):
-        df = self.df.copy()
-
-        # Calculate distance
-        df['distance'] = 0
-        for metric, value in self.targets.items():
-            df['distance'] += np.square(df[f'm_{metric}'] - value)
-
-        df['distance'] = np.sqrt(df['distance'])
-
-        if ax is None:
-            ax = plt.gca()
+    for i, df in enumerate(dfs):
+        # Vary color map
+        value = 0.20 + 0.80 * i / (len(dfs)-1)
+        color = cmap(value)
 
         ax.plot(
-            df['distance']
+            df['iteration'], 
+            df['loss'],
+            color=color,
+            label=i
         )
 
-        ax.set_title("Euclidean Distance")
-        ax.set_ylabel("Distance")
-        ax.set_xlabel("Iteration")
+    ax.legend(title="Replica")
+    ax.set_xlabel("Iteration")
+    ax.set_ylabel("Loss")
+    ax.set_title("Replica Total Loss vs. Iteration")
+        
+def plot_schedules(dfs, ax=None):
+    if ax is None:
+        ax = plt.gca()
 
-    def trajectories(self, trajectory, ax=None):
-        df = self.df.copy()
+    final_loss = [df['loss'].iat[-1] for df in dfs]
+    n_dfs = len(dfs)
+    max_rank = n_dfs - 1
+    cmap = plt.get_cmap('cool')
 
-        cmap = plt.get_cmap('cool_r')
-        norm = mcolors.Normalize(vmin=df['iteration'].min(), vmax=df['iteration'].max())
-        color = lambda values: cmap(norm(values))
+    for rank, loss in enumerate(sorted(final_loss, reverse=True)):
+        if rank != max_rank:
+            c = 0.6 * rank / (n_dfs - 2)
+            alpha = 0.5
+        else: 
+            c = 1.0
+            alpha = 1.0
 
-        # Define plane drawing function
-        def draw_plane(plane):
-            columns = [f"m_{name}" for name in plane]
+        idx = final_loss.index(loss)
+        ax.plot(dfs[idx]['beta'], c=cmap(c), alpha=alpha, label=f"{loss:.2f}")
 
-            # Draw trajectory
-            X = df[[*columns]].to_numpy()
-            grad_plot(
-                X[:,0],
-                X[:,1],
-                df['iteration'].to_numpy(),
-                color,
-            )
-
-            plt.colorbar(ScalarMappable(norm=norm,cmap=cmap), ax=ax, label='Iteration')
-
-            # Draw end points
-            ax.scatter(
-                x=[df.iloc[0][columns[0]]],
-                y=[df.iloc[0][columns[1]]],
-                color='w',
-                edgecolors=['k'],
-                label='Start'
-            )
-
-            ax.scatter(
-                x=[df.iloc[-1][columns[0]]],
-                y=[df.iloc[-1][columns[1]]],
-                color='k',
-                label='End',
-            )
-
-            # Draw target
-            ax.scatter(
-                self.targets[plane[0]],
-                self.targets[plane[1]],
-                color='k',
-                marker='x',
-                label='target'
-            )
-
-            ax.legend()
-            ax.set_xlabel(plane[0])
-            ax.set_ylabel(plane[1])
-            ax.set_title(f"{plane[0].capitalize()}-{plane[1].capitalize()} plane")
-            ax.autoscale_view()
-
-
-        def draw_trajectory(trajectory):
-            column = f"m_{trajectory}"
-
-            # Draw endpoints
-            style = '--'
-            ax.axhline(df.iloc[0][column], linestyle=style, label='Start')
-            ax.axhline(self.targets[trajectory], linestyle=style, color='r', label='Target')
-
-            # Draw trajectory
-            ax.plot(
-                df['iteration'],
-                df[column]
-            )
-            ax.set_title(f"{trajectory.capitalize()}")
-
-            ax.legend()
-
-        # Retrieve axis
-        if ax is None:
-            ax = plt.gca()
-
-        # Draw trajectories
-        if isinstance(trajectory, list) and len(trajectory) == 2:
-            draw_plane(trajectory)
-        else:
-            draw_trajectory(trajectory)
+    ax.legend(title="Final Loss")
+    ax.set_ylabel(r"$\beta$")
+    ax.set_xlabel("Iteration")
+    ax.set_title("Annealing Schedule")
+        
